@@ -1,45 +1,266 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Services</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Image size adjuster (KB)</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-        }
-
-        .container {
-            width: 100%;
-            height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+        body {
+            font-family: system-ui, Arial;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
             background: #1f242d;
         }
 
-        .internal-container {
-            /* left: 25%; */
-            display: flex;
-            justify-content: center;
+        h1, h2, h3, p {
+            color: #fff;
         }
 
-        .container .internal-container img {
-            width: 60%;
+        .row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin: 12px 0;
+            color: #fff;
+        }
+
+        input[type=file] {
+            padding: 6px;
+        }
+
+        img#preview {
+            max-width: 100%;
             height: auto;
-            border-radius: 20px;
+            border: 1px solid #ddd;
+            padding: 6px;
+        }
+
+        button {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            background: #f7f7f7;
+            cursor: pointer;
+        }
+
+        .info {
+            background: #f4f8ff;
+            border: 1px solid #dfeeff;
+            padding: 10px;
+            border-radius: 6px;
+            color: #1f242d;
+        }
+
+        label {
+            font-weight: 600;
         }
     </style>
 </head>
 
 <body>
-    <div class="container">
-        <div class="internal-container">
-            <img src="./Construction Worker Resting on Site.png" alt="Work in Progress">
+    <h1>Image size adjuster (KB)</h1>
+    <p>Upload an image, then increase or decrease its file size (approximate) in kilobytes. The tool converts images to
+        JPEG for predictable control. Transparency will be lost for PNGs when converted to JPEG.</p>
+
+    <div class="row">
+        <input id="file" class="form-control me-2" type="file" placeholder="Search" aria-label="Search" accept="image/*" />
+        <!-- <input id="file" type="file" accept="image/*"> -->
+        <div>
+            <div id="origInfo">No file chosen</div>
+            <div class="row">
+                <button id="dec10">-10 KB</button>
+                <button id="inc10">+10 KB</button>
+            </div>
         </div>
     </div>
+
+    <div class="row">
+        <label for="targetKb">Target size (KB)</label>
+        <input id="targetKb" type="number" min="1" step="1" style="width:120px" placeholder="e.g. 150">
+        <button id="applyTarget">Apply target</button>
+    </div>
+
+    <div class="row">
+        <div class="info">
+            <div>Current file: <span id="name">—</span></div>
+            <div>Current size: <b id="size">—</b></div>
+            <div>Output size: <b id="outSize">—</b></div>
+        </div>
+    </div>
+
+    <h3>Preview</h3>
+    <img id="preview" alt="preview" src="./landscape" style="border: 1px solid #fff; border-radius: 20px;">
+
+    <div class="row">
+        <button id="downloadBtn" style="display:none">Download adjusted image</button>
+    </div>
+
+    <canvas id="canvas" style="display:none"></canvas>
+
+    <script>
+        const fileInput = document.getElementById('file');
+        const preview = document.getElementById('preview');
+        const origInfo = document.getElementById('origInfo');
+        const nameEl = document.getElementById('name');
+        const sizeEl = document.getElementById('size');
+        const outSizeEl = document.getElementById('outSize');
+        const downloadLink = document.getElementById('downloadLink');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let currentImage = null; // HTMLImageElement
+        let currentFile = null; // File
+        let lastOutputBlob = null;
+
+        function bytesToKB(b) {
+            return Math.round(b / 1024);
+        }
+
+        fileInput.addEventListener('change', async (e) => {
+            const f = e.target.files[0];
+            if (!f) return;
+            currentFile = f;
+            nameEl.textContent = f.name;
+            sizeEl.textContent = bytesToKB(f.size) + ' KB';
+            outSizeEl.textContent = '—';
+            origInfo.textContent = `Type: ${f.type} — ${f.size} bytes`;
+            const url = URL.createObjectURL(f);
+            preview.src = url;
+            const img = await loadImage(url);
+            currentImage = img;
+            // draw image to canvas at original size (but limit if huge)
+            const maxDim = 2000; // avoid gigantic canvases
+            let w = img.naturalWidth;
+            let h = img.naturalHeight;
+            const scale = Math.min(1, maxDim / Math.max(w, h));
+            canvas.width = Math.round(w * scale);
+            canvas.height = Math.round(h * scale);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            URL.revokeObjectURL(url);
+            lastOutputBlob = null;
+            downloadLink.style.display = 'none';
+        });
+
+        function loadImage(src) {
+            return new Promise((resolve, reject) => {
+                const i = new Image();
+                i.onload = () => resolve(i);
+                i.onerror = (err) => reject(err);
+                i.src = src;
+            })
+        }
+
+        document.getElementById('inc10').addEventListener('click', () => adjustByDelta(10));
+        document.getElementById('dec10').addEventListener('click', () => adjustByDelta(-10));
+        document.getElementById('applyTarget').addEventListener('click', () => {
+            const v = Number(document.getElementById('targetKb').value);
+            if (!currentFile || !currentImage) { alert('Upload an image first'); return; }
+            if (!v || v < 1) { alert('Enter a positive target in KB'); return; }
+            resizeToKB(v * 1024).catch(err => alert('Error: ' + err));
+        });
+
+        function adjustByDelta(deltaKb) {
+            if (!currentFile) { alert('Upload file first'); return; }
+            const current = lastOutputBlob ? lastOutputBlob.size : currentFile.size;
+            const target = Math.max(1, current + deltaKb * 1024);
+            resizeToKB(target).catch(err => alert('Error: ' + err));
+        }
+
+        // Core: try to produce a JPEG blob close to targetBytes using binary search on quality
+        async function resizeToKB(targetBytes) {
+            if (!currentImage) throw 'No image loaded.';
+            // We'll convert to JPEG for controllable compression
+            // Use binary search on quality between 0.02 and 1.0
+            const tolerance = 1024; // 1 KB tolerance
+            let minQ = 0.02, maxQ = 1.0;
+            let bestBlob = null;
+            let bestDiff = Infinity;
+            // ensure canvas has the image at usable resolution (already drawn on load)
+            // try up to 12 iterations
+            for (let i = 0; i < 12; i++) {
+                const q = (minQ + maxQ) / 2;
+                const blob = await canvasToBlob(q);
+                const size = blob.size;
+                const diff = Math.abs(size - targetBytes);
+                if (diff < bestDiff) { bestDiff = diff; bestBlob = blob; }
+                if (Math.abs(size - targetBytes) <= tolerance) { break; }
+                if (size > targetBytes) {
+                    // produced too large -> lower quality
+                    maxQ = q;
+                } else {
+                    // produced too small -> raise quality
+                    minQ = q;
+                }
+            }
+
+            let outBlob = bestBlob;
+
+            // If even max quality (1.0) is smaller than requested, we need to pad with bytes
+            if (outBlob.size < targetBytes) {
+                const padSize = targetBytes - outBlob.size;
+                // create a Uint8Array of zeros to pad
+                const pad = new Uint8Array(padSize);
+                // Important: appending arbitrary bytes makes the file larger, but some image viewers still open it because JPEG parsers ignore trailing bytes.
+                outBlob = new Blob([outBlob, pad], { type: outBlob.type });
+            }
+
+            // If we overshot and produce larger than requested, we already tried to match via quality search.
+
+            lastOutputBlob = outBlob;
+            outSizeEl.textContent = bytesToKB(outBlob.size) + ' KB';
+
+            // update preview and download button
+            const outURL = URL.createObjectURL(outBlob);
+            preview.src = outURL;
+
+            const btn = document.getElementById('downloadBtn');
+            btn.style.display = 'inline-block';
+            btn.onclick = () => {
+                const a = document.createElement('a');
+                a.href = outURL;
+                a.download = `resized_${bytesToKB(outBlob.size)}KB.jpg`;
+                a.click();
+            };
+            // .style.display = 'inline-block';
+            downloadLink.href = outURL;
+            downloadLink.download = `resized_${bytesToKB(outBlob.size)}KB.jpg`;
+
+            return outBlob;
+        }
+
+        function canvasToBlob(quality) {
+            return new Promise((resolve) => {
+                // Use JPEG because it's adjustable. If canvas has transparency it will be flattened to white.
+                canvas.toBlob((b) => resolve(b), 'image/jpeg', quality);
+            })
+        }
+
+        // quick helper: resize by scaling (not required for KB control but offered as utility)
+        async function scaleCanvasTo(maxDim) {
+            if (!currentImage) return;
+            let w = currentImage.naturalWidth;
+            let h = currentImage.naturalHeight;
+            const scale = Math.min(1, maxDim / Math.max(w, h));
+            canvas.width = Math.round(w * scale);
+            canvas.height = Math.round(h * scale);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
+        }
+
+        // Prevent memory leaks when leaving page
+        window.addEventListener('unload', () => {
+            try { URL.revokeObjectURL(preview.src); } catch (e) { }
+        })
+        
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI"
+        crossorigin="anonymous"></script>
 </body>
 
 </html>
